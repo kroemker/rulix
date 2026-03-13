@@ -1,6 +1,6 @@
 # Rulix Language Specification
 
-**Version:** 0.1 (Draft)
+**Version:** 0.2 (Draft)
 
 ---
 
@@ -15,6 +15,10 @@ model**).
 State is **persistent**: variables written in one run are available in the
 next run. This makes Rulix naturally suited for tasks like monitoring,
 automation pipelines, and incremental computation.
+
+Rulix is designed to be **embedded**. Host applications can restrict which
+built-in function groups are available (sandboxing) and can register their own
+functions that Rulix scripts call like any built-in.
 
 ---
 
@@ -241,7 +245,29 @@ Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 
 ## 8. Built-in Functions
 
-### 8.1 I/O
+Every built-in function belongs to exactly one **group**. When Rulix is
+embedded, the host can enable or disable groups individually (see
+[Section 17](#17-embedding-and-extension)). If a script calls a function
+whose group is disabled, a runtime error is raised:
+
+```
+RuntimeError: function 'print' is not available (group 'io' is disabled)
+```
+
+The five built-in groups are:
+
+| Group | Description |
+|-------|-------------|
+| `io` | Standard input/output and logging |
+| `type` | Type conversion and type predicates |
+| `math` | Numeric operations |
+| `string` | String manipulation |
+| `state` | Variable inspection and deletion |
+
+All groups are **enabled by default** in the standalone CLI. Embedding hosts
+choose which groups to permit.
+
+### 8.1 Group: `io`
 
 | Signature | Description |
 |-----------|-------------|
@@ -249,7 +275,9 @@ Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 | `input(prompt)` | Read a line from stdin; returns a `string` |
 | `log(level, message)` | Write a timestamped message to stderr. `level` is `"info"`, `"warn"`, or `"error"` |
 
-### 8.2 Type Conversion
+### 8.2 Group: `type`
+
+**Conversion:**
 
 | Signature | Returns | Description |
 |-----------|---------|-------------|
@@ -259,7 +287,7 @@ Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 | `bool(value)` | `bool` | Truthiness coercion |
 | `type(value)` | `string` | Returns `"int"`, `"float"`, `"bool"`, `"string"`, or `"null"` |
 
-### 8.3 Type Predicates
+**Predicates:**
 
 | Signature | Returns | Description |
 |-----------|---------|-------------|
@@ -269,7 +297,7 @@ Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 | `is_string(value)` | `bool` | True if the type is `string` |
 | `is_bool(value)` | `bool` | True if the type is `bool` |
 
-### 8.4 Math
+### 8.3 Group: `math`
 
 | Signature | Returns | Description |
 |-----------|---------|-------------|
@@ -282,7 +310,7 @@ Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 | `pow(base, exp)` | `float` | Exponentiation |
 | `sqrt(n)` | `float` | Square root |
 
-### 8.5 String
+### 8.4 Group: `string`
 
 | Signature | Returns | Description |
 |-----------|---------|-------------|
@@ -296,12 +324,12 @@ Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 | `replace(s, old, new)` | `string` | Replace first occurrence |
 | `split(s, sep)` | `string` | Not in v0.1 — deferred until lists are added |
 
-### 8.6 State Management
+### 8.5 Group: `state`
 
-| Signature | Description |
-|-----------|-------------|
-| `delete(name)` | Remove the variable `name` from state (resets it to `null`) |
-| `exists(name)` | Returns `true` if `name` has ever been assigned and not deleted |
+| Signature | Returns | Description |
+|-----------|---------|-------------|
+| `delete(name)` | `null` | Remove the variable `name` from state (resets it to `null`) |
+| `exists(name)` | `bool` | Returns `true` if `name` has ever been assigned and not deleted |
 
 ---
 
@@ -437,7 +465,163 @@ rule milestone: total == 100 => {
 
 ---
 
-## 14. Design Decisions and Rationale
+## 14. Embedding and Extension
+
+This section defines how a host application written in Python embeds Rulix,
+configures sandbox restrictions, and registers custom functions.
+
+### 14.1 Configuration Object
+
+All embedding is done through a `RulixConfig` object that is passed to the
+interpreter at construction time.
+
+```python
+from rulix import RulixInterpreter, RulixConfig
+
+config = RulixConfig()
+interpreter = RulixInterpreter(config)
+interpreter.run("program.rlx")
+```
+
+`RulixConfig` with no arguments produces the same behavior as the standalone
+CLI: all built-in groups enabled, no custom functions.
+
+### 14.2 Group-Based Sandboxing
+
+The host enables or disables built-in function groups individually. Calling a
+function in a disabled group is a **runtime error** in the Rulix script.
+
+```python
+config = RulixConfig()
+config.disable_group("io")     # no print / input / log
+config.disable_group("state")  # no delete / exists
+```
+
+Or start from a **preset** and selectively re-enable:
+
+```python
+# Sandbox preset: only type, math, string are on; io and state are off
+config = RulixConfig.sandbox()
+config.enable_group("io")      # add back I/O if needed
+```
+
+**Named presets:**
+
+| Preset | Enabled groups |
+|--------|----------------|
+| `RulixConfig.full()` | `io`, `type`, `math`, `string`, `state` (default) |
+| `RulixConfig.sandbox()` | `type`, `math`, `string` |
+
+Individual `enable_group` / `disable_group` calls work on top of any preset.
+Calling either method with an unknown group name raises a `ValueError` at
+configuration time (not at runtime), so misconfiguration is caught early.
+
+### 14.3 Custom Functions
+
+Host applications register Python callables as Rulix functions. Once
+registered, they are called from Rulix scripts exactly like built-ins.
+
+#### Registration
+
+```python
+def fetch_temperature(args):
+    # args: list of Python-native values (int, float, str, bool, None)
+    sensor_id = args[0]          # already a Python str/int/etc.
+    return get_sensor_reading(sensor_id)   # return a Python-native value
+
+config.register_function(
+    name     = "fetch_temperature",
+    handler  = fetch_temperature,
+    arity    = 1,               # exact argument count; None = variadic
+)
+```
+
+Usage in a Rulix script:
+
+```rulix
+is_null(temp) => temp = 0
+=> temp = fetch_temperature("sensor_a")
+temp > 80 => log("warn", "High temperature: " + str(temp))
+```
+
+#### Contract
+
+| Aspect | Specification |
+|--------|---------------|
+| **Argument types** | The interpreter converts Rulix values to Python-native types before calling the handler: `int` → `int`, `float` → `float`, `string` → `str`, `bool` → `bool`, `null` → `None`. |
+| **Return type** | The handler must return a Python `int`, `float`, `str`, `bool`, or `None`. These are mapped back to the corresponding Rulix types. Returning any other Python type is an error. |
+| **Arity** | If `arity` is an integer and the script passes a different number of arguments, the interpreter raises a runtime error before calling the handler. Pass `arity=None` to accept any number of arguments. |
+| **Errors** | The handler may raise `RulixError(message)` to produce a Rulix runtime error. Any other exception propagates as an unhandled Python exception and terminates the interpreter. |
+| **Side effects** | Handlers may have arbitrary side effects in the host application. Rulix makes no attempt to sandbox or roll back their effects. |
+| **Name conflicts** | Registering a name that matches a built-in function raises a `ValueError` at registration time. Built-in names cannot be overridden. |
+| **Naming** | Custom function names must be valid Rulix identifiers (`[a-zA-Z_][a-zA-Z0-9_]*`) and must not be reserved words. |
+
+#### Recommended Naming Convention
+
+To avoid future conflicts as the built-in library grows, custom functions
+should use a project-specific prefix separated by an underscore:
+
+```
+myapp_send_alert(message)
+myapp_get_sensor(id)
+```
+
+### 14.4 State Access from the Host
+
+The host can read and write the Rulix state store directly, outside of a
+running script. This is useful for seeding input values before a run or
+reading output values after one.
+
+```python
+interpreter.state.set("temperature", 72)
+interpreter.run("monitor.rlx")
+result = interpreter.state.get("last_alert")   # None if unset
+```
+
+The state store uses the same persistence mechanism as normal runs: after
+`run()` completes, the state is written to the configured state file.
+
+### 14.5 Full Embedding Example
+
+```python
+from rulix import RulixInterpreter, RulixConfig, RulixError
+
+def send_alert(args):
+    message = args[0]
+    my_notification_service.send(message)
+    return None   # void return
+
+config = RulixConfig.sandbox()             # no I/O or state-mutation builtins
+config.enable_group("io")                  # allow print for debugging
+config.register_function(
+    name    = "myapp_alert",
+    handler = send_alert,
+    arity   = 1,
+)
+
+interpreter = RulixInterpreter(config, state_file="monitor.state")
+interpreter.state.set("cpu_usage", get_cpu_usage())
+interpreter.run("monitor.rlx")
+```
+
+```rulix
+# monitor.rlx
+is_null(alert_sent) => alert_sent = false
+
+rule high_cpu: cpu_usage > 90, alert_sent == false => {
+    myapp_alert("CPU usage critical: " + str(cpu_usage))
+    alert_sent = true
+}
+
+rule recovered: cpu_usage <= 90, alert_sent == true => {
+    myapp_alert("CPU usage back to normal")
+    alert_sent = false
+}
+```
+
+---
+
+## 15. Design Decisions and Rationale
 
 | Decision | Rationale |
 |----------|-----------|
@@ -448,10 +632,14 @@ rule milestone: total == 100 => {
 | Assignment is a statement, not an expression | Prevents accidental assignment-as-condition bugs (e.g., `x = 5` in a condition silently always firing). |
 | No list type in v0.1 | Keeps the parser and interpreter minimal; lists can be added as a v0.2 extension. |
 | No user-defined functions in v0.1 | Rules themselves serve as the primary control structure; UDFs add significant complexity. |
+| Built-ins organized into groups, not individually toggled | Group-level control is simple to configure and reason about; individual function toggling adds overhead with little practical benefit. |
+| Custom functions use plain identifiers, not `namespace.fn()` | Avoids a grammar change; a naming convention (prefix) is sufficient for the common embedded use case. Dot notation can be added later. |
+| Built-in names cannot be overridden by custom functions | Prevents scripts from being surprised by host-injected behavior shadowing known functions. |
+| Configuration errors (bad group names, name conflicts) fail at setup time | Early detection keeps runtime behavior predictable; the host knows its mistakes before any script runs. |
 
 ---
 
-## 15. Reserved Words
+## 16. Reserved Words
 
 ```
 rule  true  false  null  and  or  not
@@ -459,7 +647,7 @@ rule  true  false  null  and  or  not
 
 ---
 
-## 16. Future Considerations (v0.2+)
+## 17. Future Considerations (v0.2+)
 
 - **List type** with `push`, `pop`, `get`, `len` built-ins
 - **Import / include** for splitting large programs across files
@@ -467,3 +655,6 @@ rule  true  false  null  and  or  not
 - **Scoped state namespaces** to avoid variable collisions in large programs
 - **Rule priorities** or explicit ordering overrides
 - **Watch mode** (`rulix watch <file.rlx>`) for continuously re-running on a timer
+- **Dot-notation namespaces** for custom functions (`myapp.alert(msg)`) to remove the need for prefix conventions
+- **Custom groups** so host applications can group their own registered functions and expose them as a toggleable unit
+- **Async handlers** for custom functions that perform I/O without blocking the interpreter

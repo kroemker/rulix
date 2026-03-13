@@ -9,8 +9,8 @@ from enum import Enum
 from pathlib import Path
 
 from .parser import (
-    Assignment, BinaryOp, Disable, FString, FunctionCall, Identifier,
-    Literal, Program, Rule, Stop, UnaryOp, parse,
+    Assignment, BinaryOp, Disable, DotAccess, DotAssignment, FString,
+    FunctionCall, Identifier, Literal, Program, Rule, Stop, UnaryOp, parse,
 )
 
 
@@ -285,6 +285,14 @@ class Interpreter:
     def _exec(self, stmt: object) -> None:
         if isinstance(stmt, Assignment):
             self.state[stmt.name] = self._eval(stmt.value)
+        elif isinstance(stmt, DotAssignment):
+            value = self._eval(stmt.value)
+            container = self.state
+            for key in stmt.path[:-1]:
+                if not isinstance(container.get(key), dict):
+                    container[key] = {}
+                container = container[key]
+            container[stmt.path[-1]] = value
         elif isinstance(stmt, Disable):
             self.state[f"_rulix_disabled_{self._current_rule_identity}"] = True
             self._current_rule_disabled_self = True
@@ -304,6 +312,14 @@ class Interpreter:
 
         if isinstance(node, Identifier):
             return self.state.get(node.name)
+
+        if isinstance(node, DotAccess):
+            obj = self.state.get(node.path[0])
+            for key in node.path[1:]:
+                if not isinstance(obj, dict):
+                    return None
+                obj = obj.get(key)
+            return obj
 
         if isinstance(node, UnaryOp):
             operand = self._eval(node.operand)

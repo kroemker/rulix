@@ -154,6 +154,29 @@ Use `{{` for a literal `{` and `}}` for a literal `}`:
 Unset variables evaluate to `null`. `null` and `false` are falsy; everything
 else is truthy.
 
+### Nested state (dot notation)
+
+State values can be nested JSON objects. Use dot notation to read or write at any depth:
+
+```rulix
+# Read
+server.online == true => alert("server up")
+msg = "host: {server.host}, port: {server.port}"
+
+# Write — intermediate dicts are created automatically
+=> server.cpu.usage = get_cpu()
+=> config.flags.verbose = true
+
+# Initialise a nested value if absent
+is_null(cfg.timeout) => cfg.timeout = 30
+```
+
+A missing path evaluates to `null`. Assigning to a dotted path creates any missing intermediate objects. The host can seed nested state before running:
+
+```python
+interp.state.set("server", {"host": "localhost", "port": 8080})
+```
+
 ### Comments
 
 ```rulix

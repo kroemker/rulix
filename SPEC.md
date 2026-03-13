@@ -311,7 +311,35 @@ A variable that has never been assigned evaluates to `null`. Use the built-in
 is_null(counter) => counter = 0
 ```
 
-### 7.3 Persistence
+### 7.3 Nested Values (dot notation)
+
+State values can be nested JSON objects. Use **dot notation** to read or
+write any level of nesting:
+
+```rulix
+# Read nested values
+server.online == true => alert("server is up")
+msg = "port: {server.port}"
+
+# Write nested values (intermediate dicts are created automatically)
+server.cpu.usage = get_cpu()
+config.flags.verbose = true
+```
+
+Accessing a path where any segment is missing or not a dict evaluates to
+`null`. Writing to a path creates any missing intermediate objects.
+
+```rulix
+is_null(cfg.timeout) => cfg.timeout = 30   # initialise if absent
+```
+
+When Rulix is used embedded, the host can seed nested state directly:
+
+```python
+interp.state.set("server", {"port": 8080, "online": True})
+```
+
+### 7.4 Persistence
 
 After each run, all variables are written to a **state file**. On the next
 run, the state file is loaded before any rules are evaluated.
@@ -319,6 +347,7 @@ run, the state file is loaded before any rules are evaluated.
 - Default state file: `<program-name>.state` (JSON) in the working directory.
 - Override with the `--state` CLI flag.
 - Use `rulix clear <file.rlx>` to wipe the state file.
+- Nested state is stored as nested JSON objects and round-trips transparently.
 
 Variable names are case-sensitive identifiers: `[a-zA-Z_][a-zA-Z0-9_]*`.
 
@@ -444,8 +473,9 @@ condition    = expr ;
 body         = statement
              | '{' [ NEWLINE ] { statement NEWLINE } '}' ;
 
-statement    = assignment | 'disable' | 'stop' | expr ;
+statement    = assignment | dot_assignment | 'disable' | 'stop' | expr ;
 assignment   = IDENTIFIER '=' expr ;
+dot_assignment = IDENTIFIER '.' IDENTIFIER { '.' IDENTIFIER } '=' expr ;
 
 expr         = or_expr ;
 or_expr      = and_expr { 'or' and_expr } ;
@@ -456,8 +486,9 @@ add_expr     = mul_expr { ( '+' | '-' ) mul_expr } ;
 mul_expr     = unary_expr { ( '*' | '/' | '%' ) unary_expr } ;
 unary_expr   = '-' unary_expr | primary ;
 
-primary      = IDENTIFIER '(' [ arg_list ] ')'   (* function call *)
-             | IDENTIFIER                          (* variable read *)
+primary      = IDENTIFIER '(' [ arg_list ] ')'                    (* function call *)
+             | IDENTIFIER '.' IDENTIFIER { '.' IDENTIFIER }        (* nested read   *)
+             | IDENTIFIER                                           (* variable read *)
              | literal
              | '(' expr ')' ;
 

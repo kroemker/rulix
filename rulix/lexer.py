@@ -41,6 +41,7 @@ class TT(Enum):
     LBRACE  = auto()  # {
     RBRACE  = auto()  # }
     COLON   = auto()  # :
+    DOT     = auto()  # .
     # Structure
     NEWLINE = auto()
     EOF     = auto()
@@ -73,6 +74,7 @@ _SINGLE: dict[str, TT] = {
     "{": TT.LBRACE,
     "}": TT.RBRACE,
     ":": TT.COLON,
+    ".": TT.DOT,
 }
 
 

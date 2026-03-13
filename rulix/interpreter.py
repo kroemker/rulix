@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import math
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 
 from .parser import (
@@ -18,6 +20,26 @@ class RulixError(Exception):
 
 class _StopEvaluation(Exception):
     """Raised by the stop statement to end the current evaluation cycle."""
+
+
+# ---------------------------------------------------------------------------
+# Trace types (public API)
+# ---------------------------------------------------------------------------
+
+class RuleOutcome(Enum):
+    FIRED            = "fired"            # conditions passed, body executed
+    CONDITION_FALSE  = "condition_false"  # conditions were false (or errored)
+    ALREADY_DISABLED = "already_disabled" # disabled flag was set before this run
+    NOT_REACHED      = "not_reached"      # stop ended the cycle before this rule
+
+
+@dataclass
+class RuleTrace:
+    index:         int
+    label:         str | None
+    outcome:       RuleOutcome
+    disabled_self: bool = field(default=False)  # called disable during this run
+    stopped_cycle: bool = field(default=False)  # called stop during this run
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +206,9 @@ class Interpreter:
         self._functions: dict[str, tuple] = {}
         # Identity of the rule currently being executed (set in run())
         self._current_rule_identity: str = ""
+        self._current_rule_disabled_self: bool = False
+        # Populated after every run() call
+        self.last_trace: list[RuleTrace] = []
         self._build_registry()
 
     def _build_registry(self) -> None:
@@ -212,28 +237,48 @@ class Interpreter:
 
     def run(self, source: str) -> None:
         program = parse(source)
-        try:
-            for index, rule in enumerate(program.rules):
-                identity = rule.label if rule.label else str(index)
-                if self.state.get(f"_rulix_disabled_{identity}"):
-                    continue
-                self._current_rule_identity = identity
-                self._execute_rule(rule)
-        except _StopEvaluation:
-            pass  # cycle ends here; state is already up to date
+        trace: list[RuleTrace] = []
+        for index, rule in enumerate(program.rules):
+            identity = rule.label if rule.label else str(index)
+            if self.state.get(f"_rulix_disabled_{identity}"):
+                trace.append(RuleTrace(index, rule.label, RuleOutcome.ALREADY_DISABLED))
+                continue
+            self._current_rule_identity = identity
+            self._current_rule_disabled_self = False
+            try:
+                fired = self._execute_rule(rule)
+            except _StopEvaluation:
+                trace.append(RuleTrace(
+                    index, rule.label, RuleOutcome.FIRED,
+                    disabled_self=self._current_rule_disabled_self,
+                    stopped_cycle=True,
+                ))
+                for i in range(index + 1, len(program.rules)):
+                    r = program.rules[i]
+                    trace.append(RuleTrace(i, r.label, RuleOutcome.NOT_REACHED))
+                break
+            else:
+                outcome = RuleOutcome.FIRED if fired else RuleOutcome.CONDITION_FALSE
+                trace.append(RuleTrace(
+                    index, rule.label, outcome,
+                    disabled_self=self._current_rule_disabled_self,
+                ))
+        self.last_trace = trace
 
     # --- rule execution ---
 
-    def _execute_rule(self, rule: Rule) -> None:
+    def _execute_rule(self, rule: Rule) -> bool:
+        """Execute the rule. Returns True if the rule fired, False if skipped."""
         for cond in rule.conditions:
             try:
                 result = self._eval(cond)
             except RulixError:
-                return  # skip rule on condition error
+                return False
             if not _truthy(result):
-                return
+                return False
         for stmt in rule.body:
-            self._exec(stmt)
+            self._exec(stmt)  # _StopEvaluation propagates naturally
+        return True
 
     # --- statement execution ---
 
@@ -242,6 +287,7 @@ class Interpreter:
             self.state[stmt.name] = self._eval(stmt.value)
         elif isinstance(stmt, Disable):
             self.state[f"_rulix_disabled_{self._current_rule_identity}"] = True
+            self._current_rule_disabled_self = True
         elif isinstance(stmt, Stop):
             raise _StopEvaluation()
         else:
@@ -381,6 +427,7 @@ class RulixInterpreter:
         self._config = config if config is not None else _RC.full()
         self._state_file = state_file
         self._state_data: dict = {}
+        self._last_trace: list[RuleTrace] = []
         if state_file:
             self._load_state()
 
@@ -388,10 +435,15 @@ class RulixInterpreter:
     def state(self) -> StateView:
         return StateView(self._state_data)
 
+    @property
+    def last_trace(self) -> list[RuleTrace]:
+        return self._last_trace
+
     def run(self, source: str) -> None:
         """Evaluate all rules in *source* against the current state."""
         interp = Interpreter(state=self._state_data, config=self._config)
         interp.run(source)
+        self._last_trace = interp.last_trace
         # _state_data is mutated in-place by the inner Interpreter
         if self._state_file:
             self._save_state()

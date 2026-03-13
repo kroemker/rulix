@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
 import sys
 from datetime import datetime
+from pathlib import Path
 
 from .parser import (
     Assignment, BinaryOp, FunctionCall, Identifier, Literal, Program,
@@ -359,6 +361,8 @@ class RulixInterpreter:
         self._config = config if config is not None else _RC.full()
         self._state_file = state_file
         self._state_data: dict = {}
+        if state_file:
+            self._load_state()
 
     @property
     def state(self) -> StateView:
@@ -369,3 +373,17 @@ class RulixInterpreter:
         interp = Interpreter(state=self._state_data, config=self._config)
         interp.run(source)
         # _state_data is mutated in-place by the inner Interpreter
+        if self._state_file:
+            self._save_state()
+
+    def _load_state(self) -> None:
+        path = Path(self._state_file)
+        if path.exists():
+            self._state_data = json.loads(path.read_text(encoding="utf-8"))
+
+    def _save_state(self) -> None:
+        path = Path(self._state_file)
+        path.write_text(
+            json.dumps(self._state_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )

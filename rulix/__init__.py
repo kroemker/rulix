@@ -1,5 +1,7 @@
 from .config import RulixConfig
-from .interpreter import Interpreter, RulixError, RulixInterpreter, StateView
+from .interpreter import (
+    Interpreter, RulixError, RulixInterpreter, RuleOutcome, RuleTrace, StateView,
+)
 
 
 def run(
@@ -24,4 +26,8 @@ def run(
     return interp.state
 
 
-__all__ = ["run", "Interpreter", "RulixConfig", "RulixError", "RulixInterpreter", "StateView"]
+__all__ = [
+    "run",
+    "Interpreter", "RulixConfig", "RulixError", "RulixInterpreter", "StateView",
+    "RuleOutcome", "RuleTrace",
+]

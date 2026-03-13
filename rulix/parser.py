@@ -46,6 +46,19 @@ class Assignment:
 
 
 @dataclass
+class DotAccess:
+    """Read a nested state value: server.cpu.usage"""
+    path: list  # e.g. ["server", "cpu", "usage"]
+
+
+@dataclass
+class DotAssignment:
+    """Write a nested state value: server.cpu.usage = 85"""
+    path:  list   # e.g. ["server", "cpu", "usage"]
+    value: object
+
+
+@dataclass
 class FString:
     """String with interpolated expressions: "hello {name}"."""
     parts: list  # alternating Literal (str chunks) and expr nodes
@@ -155,19 +168,41 @@ class Parser:
             return stmts
         return [self._parse_statement()]
 
+    def _try_dotted_name(self) -> tuple[list[str], int] | tuple[None, None]:
+        """Look ahead for 'IDENT (DOT IDENT)*' without consuming tokens.
+
+        Returns (path, pos_after_path) or (None, None) if the current
+        position doesn't start a dotted name.
+        """
+        pos = self._pos
+        if pos >= len(self._tokens) or self._tokens[pos].type != TT.IDENT:
+            return None, None
+        path = [self._tokens[pos].value]
+        pos += 1
+        while (pos < len(self._tokens)
+               and self._tokens[pos].type == TT.DOT
+               and pos + 1 < len(self._tokens)
+               and self._tokens[pos + 1].type == TT.IDENT):
+            path.append(self._tokens[pos + 1].value)
+            pos += 2
+        return path, pos
+
     def _parse_statement(self) -> object:
         # Control-flow keywords — must be checked before the expression path.
         if self._match(TT.DISABLE):
             return Disable()
         if self._match(TT.STOP):
             return Stop()
-        # Look one token ahead: 'IDENT =' is an assignment (not 'IDENT ==').
-        if (self._check(TT.IDENT)
-                and self._pos + 1 < len(self._tokens)
-                and self._tokens[self._pos + 1].type == TT.ASSIGN):
-            name = self._advance().value
-            self._advance()  # consume '='
-            return Assignment(name, self._parse_expr())
+        # Detect assignment: 'IDENT (DOT IDENT)* =' (plain '=' not '==').
+        path, end_pos = self._try_dotted_name()
+        if (path is not None
+                and end_pos < len(self._tokens)
+                and self._tokens[end_pos].type == TT.ASSIGN):
+            self._pos = end_pos + 1   # consume path + '='
+            value = self._parse_expr()
+            if len(path) == 1:
+                return Assignment(path[0], value)
+            return DotAssignment(path, value)
         return self._parse_expr()
 
     # Expressions — standard precedence ladder
@@ -322,6 +357,7 @@ class Parser:
 
         if t.type == TT.IDENT:
             self._advance()
+            # Function call: name(args)
             if self._match(TT.LPAREN):
                 args: list = []
                 if not self._check(TT.RPAREN):
@@ -330,6 +366,13 @@ class Parser:
                         args.append(self._parse_expr())
                 self._expect(TT.RPAREN, f"Expected ')' in call to '{t.value}' at line {t.line}")
                 return FunctionCall(t.value, args)
+            # Dot access: name.sub.key
+            if self._check(TT.DOT):
+                path = [t.value]
+                while self._match(TT.DOT):
+                    ident = self._expect(TT.IDENT, f"Expected identifier after '.' at line {t.line}")
+                    path.append(ident.value)
+                return DotAccess(path)
             return Identifier(t.value)
 
         if t.type == TT.LPAREN:

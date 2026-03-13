@@ -1,0 +1,12 @@
+# basic_example.rlx
+# Demonstrates the two fundamental rule types:
+#   1. An unconditional rule that always fires.
+#   2. A conditional rule that fires based on current state.
+
+# Rule 1: always fires, sets x to 1.
+=> x = 1
+
+# Rule 2: fires only when x equals 1, then sets y to 2.
+# Because rule 1 ran first (pipeline model), x is already 1 by the time
+# this condition is checked.
+x == 1 => y = 2

@@ -7,8 +7,8 @@ from datetime import datetime
 from pathlib import Path
 
 from .parser import (
-    Assignment, BinaryOp, Disable, FunctionCall, Identifier, Literal,
-    Program, Rule, Stop, UnaryOp, parse,
+    Assignment, BinaryOp, Disable, FString, FunctionCall, Identifier,
+    Literal, Program, Rule, Stop, UnaryOp, parse,
 )
 
 
@@ -252,6 +252,9 @@ class Interpreter:
     def _eval(self, node: object) -> object:
         if isinstance(node, Literal):
             return node.value
+
+        if isinstance(node, FString):
+            return "".join(_to_str(self._eval(part)) for part in node.parts)
 
         if isinstance(node, Identifier):
             return self.state.get(node.name)

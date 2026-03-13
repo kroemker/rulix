@@ -119,6 +119,28 @@ rule critical: error_count > 10 => {
 `disable` stores a flag in state as `_rulix_disabled_<label>` (label if present,
 otherwise the rule's 0-based index). Delete that key from host code to re-enable.
 
+### String interpolation
+
+Embed expressions directly inside strings using `{expr}`:
+
+```rulix
+name = "Alice"
+score = 95
+rule greet: => msg = "Hello {name}, score: {score}!"
+```
+
+Any Rulix expression is valid inside `{...}`, including arithmetic and function calls:
+
+```rulix
+=> summary = "next={count + 1}, type={type(x)}"
+```
+
+Use `{{` for a literal `{` and `}}` for a literal `}`:
+
+```rulix
+=> msg = "{{not a hole}} but {x} is"   # → "{not a hole} but <x>"
+```
+
 ### Data types
 
 | Type     | Examples                      |
@@ -126,7 +148,7 @@ otherwise the rule's 0-based index). Delete that key from host code to re-enable
 | `int`    | `0`, `42`, `-7`               |
 | `float`  | `3.14`, `-0.5`                |
 | `bool`   | `true`, `false`               |
-| `string` | `"hello"`, `"line\none"`      |
+| `string` | `"hello"`, `"hi {name}"`      |
 | `null`   | `null`                        |
 
 Unset variables evaluate to `null`. `null` and `false` are falsy; everything

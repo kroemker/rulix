@@ -1,0 +1,54 @@
+<idea-plugin>
+    <id>com.rulix.language</id>
+    <name>Rulix Language Support</name>
+    <vendor>Rulix</vendor>
+
+    <description><![CDATA[
+        Language support for <b>Rulix</b> (<code>.rlx</code>) rule-based scripts.<br/><br/>
+        <ul>
+            <li>Syntax highlighting — keywords, built-in functions, strings, comments, operators</li>
+            <li>Customisable colour scheme (Settings → Editor → Color Scheme → Rulix)</li>
+            <li>Line commenting with <code>Ctrl+/</code> (uses <code>#</code>)</li>
+            <li>Brace matching for <code>{}</code> and <code>()</code></li>
+            <li>File type icon for <code>.rlx</code> files</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- File type -->
+        <fileType
+            name="Rulix"
+            implementationClass="com.rulix.plugin.RulixFileType"
+            fieldName="INSTANCE"
+            language="Rulix"
+            extensions="rlx"/>
+
+        <!-- Parser / PSI -->
+        <lang.parserDefinition
+            language="Rulix"
+            implementationClass="com.rulix.plugin.RulixParserDefinition"/>
+
+        <!-- Syntax highlighting -->
+        <lang.syntaxHighlighterFactory
+            language="Rulix"
+            implementationClass="com.rulix.plugin.highlighting.RulixSyntaxHighlighterFactory"/>
+
+        <!-- Color settings page -->
+        <colorSettingsPage
+            implementation="com.rulix.plugin.highlighting.RulixColorSettingsPage"/>
+
+        <!-- Line commenter (#) -->
+        <lang.commenter
+            language="Rulix"
+            implementationClass="com.rulix.plugin.RulixCommenter"/>
+
+        <!-- Brace matcher {} () -->
+        <lang.braceMatcher
+            language="Rulix"
+            implementationClass="com.rulix.plugin.RulixBraceMatcher"/>
+
+    </extensions>
+</idea-plugin>

@@ -46,6 +46,16 @@ class Assignment:
 
 
 @dataclass
+class Disable:
+    """Marks the current rule as disabled for all future runs."""
+
+
+@dataclass
+class Stop:
+    """Ends the current evaluation cycle immediately."""
+
+
+@dataclass
 class Rule:
     label:      str | None
     conditions: list        # list of expr nodes; empty = unconditional
@@ -128,7 +138,7 @@ class Parser:
 
     def _parse_body(self) -> list:
         if self._match(TT.LBRACE):
-            self._expect(TT.NEWLINE, "Expected newline after '{'")
+            self._match(TT.NEWLINE)   # newline after '{' is optional
             self._skip_newlines()
             stmts: list = []
             while not self._check(TT.RBRACE, TT.EOF):
@@ -140,6 +150,11 @@ class Parser:
         return [self._parse_statement()]
 
     def _parse_statement(self) -> object:
+        # Control-flow keywords — must be checked before the expression path.
+        if self._match(TT.DISABLE):
+            return Disable()
+        if self._match(TT.STOP):
+            return Stop()
         # Look one token ahead: 'IDENT =' is an assignment (not 'IDENT ==').
         if (self._check(TT.IDENT)
                 and self._pos + 1 < len(self._tokens)

@@ -7,13 +7,17 @@ from datetime import datetime
 from pathlib import Path
 
 from .parser import (
-    Assignment, BinaryOp, FunctionCall, Identifier, Literal, Program,
-    Rule, UnaryOp, parse,
+    Assignment, BinaryOp, Disable, FunctionCall, Identifier, Literal,
+    Program, Rule, Stop, UnaryOp, parse,
 )
 
 
 class RulixError(Exception):
     pass
+
+
+class _StopEvaluation(Exception):
+    """Raised by the stop statement to end the current evaluation cycle."""
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +182,8 @@ class Interpreter:
         self._config = config  # None = no group checking (all allowed)
         # Registry: name -> (handler, arity | None, group)
         self._functions: dict[str, tuple] = {}
+        # Identity of the rule currently being executed (set in run())
+        self._current_rule_identity: str = ""
         self._build_registry()
 
     def _build_registry(self) -> None:
@@ -206,8 +212,15 @@ class Interpreter:
 
     def run(self, source: str) -> None:
         program = parse(source)
-        for rule in program.rules:
-            self._execute_rule(rule)
+        try:
+            for index, rule in enumerate(program.rules):
+                identity = rule.label if rule.label else str(index)
+                if self.state.get(f"_rulix_disabled_{identity}"):
+                    continue
+                self._current_rule_identity = identity
+                self._execute_rule(rule)
+        except _StopEvaluation:
+            pass  # cycle ends here; state is already up to date
 
     # --- rule execution ---
 
@@ -227,6 +240,10 @@ class Interpreter:
     def _exec(self, stmt: object) -> None:
         if isinstance(stmt, Assignment):
             self.state[stmt.name] = self._eval(stmt.value)
+        elif isinstance(stmt, Disable):
+            self.state[f"_rulix_disabled_{self._current_rule_identity}"] = True
+        elif isinstance(stmt, Stop):
+            raise _StopEvaluation()
         else:
             self._eval(stmt)
 

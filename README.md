@@ -74,14 +74,50 @@ Operator precedence follows standard mathematical convention.
 
 ### Statements
 
-A statement is either an **assignment** or a **function call**:
+A statement is an **assignment**, a **control-flow keyword**, or a **function call**:
 
 ```rulix
 x = x + 1          # assignment
 print("hello")     # function call
+disable            # control-flow keyword
+stop               # control-flow keyword
 ```
 
 Assignment is a statement only — it cannot appear inside a larger expression.
+
+### Control flow
+
+Two keyword statements are valid inside a rule body:
+
+| Keyword | Effect |
+|---------|--------|
+| `disable` | Marks the current rule as disabled in state. It will not fire in any future run. Execution of the current body continues normally. |
+| `stop` | Immediately ends the current evaluation cycle. No further statements or rules run this cycle. The next run starts fresh from rule 1. |
+
+```rulix
+# One-shot initialisation
+rule init: is_null(n) => {
+    n = 0
+    disable          # fires exactly once across all runs
+}
+
+# Emergency brake
+rule overflow: n > 1000 => {
+    log("warn", "overflow, resetting")
+    n = 0
+    stop             # skip remaining rules this cycle
+}
+
+# Both at once: disable self and end the cycle
+rule critical: error_count > 10 => {
+    log("error", "critical threshold hit")
+    disable
+    stop
+}
+```
+
+`disable` stores a flag in state as `_rulix_disabled_<label>` (label if present,
+otherwise the rule's 0-based index). Delete that key from host code to re-enable.
 
 ### Data types
 

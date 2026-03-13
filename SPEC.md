@@ -147,8 +147,9 @@ is a runtime error (e.g., `"a" < 3`).
 
 ## 5. Statements
 
-A **statement** is either an expression (typically a function call with a
-side effect) or an **assignment**.
+A **statement** is one of: an **assignment**, a **control-flow keyword**
+(`disable`, `stop`), or an **expression** (typically a function call with a
+side effect).
 
 ### 5.1 Assignment
 
@@ -174,7 +175,53 @@ print("hello")
 log("info", "run complete")
 ```
 
-### 5.3 Multiple Conditions vs. Multiple Statements
+### 5.3 Control-flow Statements
+
+Two keyword statements control execution flow from inside a rule body:
+
+#### `disable`
+
+Marks the **current rule** as disabled in the persistent state. The rule
+will not fire again in any future run. Execution of the current body
+continues normally after `disable`.
+
+```rulix
+rule init: is_null(ready) => {
+    ready = true
+    disable          # will never fire again
+}
+```
+
+The disabled flag is stored in state as `_rulix_disabled_<identity>`, where
+identity is the rule's label (if it has one) or its 0-based position index.
+A rule can be re-enabled from host code by deleting that state key.
+
+#### `stop`
+
+Immediately ends the **current evaluation cycle**. No further statements in
+the current body execute, and no subsequent rules are evaluated this run.
+The next run starts normally from rule 1.
+
+```rulix
+rule guard: error_count > 10 => {
+    log("error", "too many errors")
+    stop             # nothing after this runs this cycle
+}
+```
+
+Both keywords can be combined. Order matters: `disable` before `stop` disables
+the rule *and* stops the cycle; `stop` before `disable` stops immediately
+without ever reaching `disable`.
+
+```rulix
+rule once_and_stop: => {
+    setup = true
+    disable          # won't fire again
+    stop             # nothing after this rule runs this cycle
+}
+```
+
+### 5.4 Multiple Conditions vs. Multiple Statements
 
 - **Conditions** are separated by commas (`,`) and implicitly ANDed.
 - **Statements** are separated by newlines inside `{ }`.
@@ -361,9 +408,9 @@ condition_list = [ condition { ',' condition } ] ;
 condition    = expr ;
 
 body         = statement
-             | '{' NEWLINE { statement NEWLINE } '}' ;
+             | '{' [ NEWLINE ] { statement NEWLINE } '}' ;
 
-statement    = assignment | expr ;
+statement    = assignment | 'disable' | 'stop' | expr ;
 assignment   = IDENTIFIER '=' expr ;
 
 expr         = or_expr ;
@@ -642,7 +689,7 @@ rule recovered: cpu_usage <= 90, alert_sent == true => {
 ## 16. Reserved Words
 
 ```
-rule  true  false  null  and  or  not
+rule  true  false  null  and  or  not  disable  stop
 ```
 
 ---

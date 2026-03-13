@@ -7,7 +7,7 @@ _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # Reserved words that cannot be used as function names
 _RESERVED_WORDS: frozenset[str] = frozenset(
-    {"rule", "true", "false", "null", "and", "or", "not"}
+    {"rule", "true", "false", "null", "and", "or", "not", "disable", "stop"}
 )
 
 

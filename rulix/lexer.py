@@ -17,6 +17,8 @@ class TT(Enum):
     AND     = auto()
     OR      = auto()
     NOT     = auto()
+    DISABLE = auto()
+    STOP    = auto()
     # Operators
     ARROW   = auto()  # =>
     ASSIGN  = auto()  # =
@@ -44,13 +46,15 @@ class TT(Enum):
 
 
 _KEYWORDS: dict[str, TT] = {
-    "true":  TT.TRUE,
-    "false": TT.FALSE,
-    "null":  TT.NULL,
-    "rule":  TT.RULE,
-    "and":   TT.AND,
-    "or":    TT.OR,
-    "not":   TT.NOT,
+    "true":    TT.TRUE,
+    "false":   TT.FALSE,
+    "null":    TT.NULL,
+    "rule":    TT.RULE,
+    "and":     TT.AND,
+    "or":      TT.OR,
+    "not":     TT.NOT,
+    "disable": TT.DISABLE,
+    "stop":    TT.STOP,
 }
 
 _SINGLE: dict[str, TT] = {

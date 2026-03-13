@@ -249,7 +249,41 @@ x > 0 => {
 | `string` | `"hello"`, `"line\none"` | UTF-8, double-quoted; supports `\n`, `\t`, `\\`, `\"` |
 | `null` | `null` | Represents absence of a value |
 
-### 6.1 Type Coercion Rules
+### 6.1 String Interpolation
+
+Any string containing `{expr}` is an **interpolated string**. Each `{...}` hole
+is replaced at runtime by evaluating the expression inside and converting the
+result to a string.
+
+```rulix
+name = "Alice"
+score = 42
+msg = "Hello {name}, your score is {score}!"
+# → "Hello Alice, your score is 42!"
+```
+
+Any valid Rulix expression is allowed inside `{...}`:
+
+```rulix
+msg = "next: {count + 1}"
+msg = "type: {type(x)}"
+msg = "ok: {score >= 100}"
+```
+
+**Value-to-string conversion** inside holes follows the same rules as `str()`:
+`null` → `"null"`, `true` → `"true"`, `false` → `"false"`, numbers use their
+natural representation.
+
+**Brace escaping** — use `{{` for a literal `{` and `}}` for a literal `}`:
+
+```rulix
+msg = "{{escaped}} and {value}"   # → "{escaped} and <value>"
+```
+
+Strings that contain no `{...}` holes are plain strings and are not processed
+for interpolation (a lone `}` is legal in a plain string).
+
+### 6.2 Type Coercion Rules
 
 Rulix is **dynamically typed** with minimal implicit coercion:
 
@@ -435,6 +469,8 @@ IDENTIFIER   = ( LETTER | '_' ) { LETTER | DIGIT | '_' } ;
 INTEGER      = [ '-' ] DIGIT { DIGIT } ;
 FLOAT        = [ '-' ] DIGIT { DIGIT } '.' DIGIT { DIGIT } ;
 STRING       = '"' { string_char } '"' ;
+INTERP_STRING = '"' { string_char | '{' expr '}' | '{{' | '}}' } '"' ;
+               (* used when at least one {expr} hole is present *)
 ```
 
 ---

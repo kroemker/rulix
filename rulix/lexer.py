@@ -8,7 +8,8 @@ class TT(Enum):
     IDENT   = auto()
     INT     = auto()
     FLOAT   = auto()
-    STRING  = auto()
+    STRING       = auto()
+    INTERP_STRING = auto()  # string containing {expr} holes
     # Keywords
     TRUE    = auto()
     FALSE   = auto()
@@ -137,18 +138,26 @@ def tokenize(source: str) -> list[Token]:
         if c == '"':
             i += 1
             chars: list[str] = []
+            has_interp = False
             while i < len(source) and source[i] != '"':
                 if source[i] == "\\" and i + 1 < len(source):
                     i += 1
                     esc = source[i]
                     chars.append({"n": "\n", "t": "\t", "\\": "\\", '"': '"'}.get(esc, esc))
                 else:
+                    # Detect interpolation: '{' not followed by another '{'
+                    if (source[i] == "{"
+                            and i + 1 < len(source)
+                            and source[i + 1] != "{"):
+                        has_interp = True
                     chars.append(source[i])
                 i += 1
             if i >= len(source):
                 raise LexError(f"Unterminated string at line {line}")
             i += 1  # closing "
-            tokens.append(Token(TT.STRING, "".join(chars), line))
+            raw = "".join(chars)
+            tt = TT.INTERP_STRING if has_interp else TT.STRING
+            tokens.append(Token(tt, raw, line))
             continue
 
         # Numbers

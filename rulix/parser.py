@@ -46,6 +46,12 @@ class Assignment:
 
 
 @dataclass
+class FString:
+    """String with interpolated expressions: "hello {name}"."""
+    parts: list  # alternating Literal (str chunks) and expr nodes
+
+
+@dataclass
 class Disable:
     """Marks the current rule as disabled for all future runs."""
 
@@ -230,6 +236,63 @@ class Parser:
             return UnaryOp("-", self._parse_unary())
         return self._parse_primary()
 
+    def _parse_fstring(self, raw: str) -> FString:
+        """Split raw string content into literal chunks and expression nodes."""
+        from .lexer import LexError as _LexError
+        parts: list = []
+        i = 0
+        buf = ""
+        while i < len(raw):
+            c = raw[i]
+            if c == "{":
+                if i + 1 < len(raw) and raw[i + 1] == "{":
+                    buf += "{"
+                    i += 2
+                    continue
+                # Find the matching closing '}'
+                depth = 1
+                j = i + 1
+                while j < len(raw) and depth > 0:
+                    if raw[j] == "{":
+                        depth += 1
+                    elif raw[j] == "}":
+                        depth -= 1
+                    j += 1
+                if depth != 0:
+                    raise ParseError("Unclosed '{' in interpolated string")
+                expr_src = raw[i + 1 : j - 1].strip()
+                if not expr_src:
+                    raise ParseError("Empty interpolation '{}' in string")
+                if buf:
+                    parts.append(Literal(buf))
+                    buf = ""
+                try:
+                    expr_tokens = tokenize(expr_src)
+                    sub = Parser(expr_tokens)
+                    node = sub._parse_expr()
+                    if not sub._check(TT.EOF):
+                        raise ParseError(
+                            "Unexpected content after expression in string interpolation"
+                        )
+                    parts.append(node)
+                except _LexError as e:
+                    raise ParseError(
+                        f"Invalid expression in string interpolation: {e}"
+                    ) from e
+                i = j
+            elif c == "}":
+                if i + 1 < len(raw) and raw[i + 1] == "}":
+                    buf += "}"
+                    i += 2
+                else:
+                    raise ParseError("Unmatched '}' in interpolated string")
+            else:
+                buf += c
+                i += 1
+        if buf:
+            parts.append(Literal(buf))
+        return FString(parts)
+
     def _parse_primary(self) -> object:
         t = self._peek()
 
@@ -244,6 +307,10 @@ class Parser:
         if t.type == TT.STRING:
             self._advance()
             return Literal(t.value)
+
+        if t.type == TT.INTERP_STRING:
+            self._advance()
+            return self._parse_fstring(t.value)
 
         if t.type in (TT.TRUE, TT.FALSE):
             self._advance()

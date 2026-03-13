@@ -301,3 +301,71 @@ class Interpreter:
                 f"'{node.name}' expects {arity} argument(s), got {len(args)}"
             )
         return handler(args)
+
+
+# ---------------------------------------------------------------------------
+# StateView — host-facing read/write interface over the state dict
+# ---------------------------------------------------------------------------
+
+class StateView:
+    """Read/write proxy over the interpreter's state dictionary.
+
+    Returned by ``RulixInterpreter.state``.  The host uses this to seed
+    input values before a run and to read output values afterwards.
+    """
+
+    def __init__(self, data: dict) -> None:
+        self._data = data
+
+    def get(self, name: str, default: object = None) -> object:
+        return self._data.get(name, default)
+
+    def set(self, name: str, value: object) -> None:
+        self._data[name] = value
+
+    def delete(self, name: str) -> None:
+        self._data.pop(name, None)
+
+    def as_dict(self) -> dict:
+        return dict(self._data)
+
+
+# ---------------------------------------------------------------------------
+# RulixInterpreter — public high-level interpreter
+# ---------------------------------------------------------------------------
+
+class RulixInterpreter:
+    """High-level interpreter for embedding Rulix in host applications.
+
+    Maintains state across multiple ``run()`` calls and optionally
+    persists that state to a file between sessions (see iteration 5).
+
+    Example::
+
+        config = RulixConfig.sandbox()
+        config.register_function("myapp_alert", handler=send_alert, arity=1)
+
+        interp = RulixInterpreter(config=config)
+        interp.state.set("cpu_usage", get_cpu())
+        interp.run(source)
+    """
+
+    def __init__(
+        self,
+        config: "RulixConfig | None" = None,
+        state_file: str | None = None,
+    ) -> None:
+        from .config import RulixConfig as _RC
+        self._config = config if config is not None else _RC.full()
+        self._state_file = state_file
+        self._state_data: dict = {}
+
+    @property
+    def state(self) -> StateView:
+        return StateView(self._state_data)
+
+    def run(self, source: str) -> None:
+        """Evaluate all rules in *source* against the current state."""
+        interp = Interpreter(state=self._state_data, config=self._config)
+        interp.run(source)
+        # _state_data is mutated in-place by the inner Interpreter

@@ -78,6 +78,8 @@ class RulixConfig:
             raise ValueError(f"Function name {name!r} is a reserved word")
         if name in BUILTIN_NAMES:
             raise ValueError(f"Cannot override built-in function: {name!r}")
+        if name in self._custom:
+            raise ValueError(f"Function {name!r} is already registered")
         self._custom[name] = (handler, arity)
 
     @property

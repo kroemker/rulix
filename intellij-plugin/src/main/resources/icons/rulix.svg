@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <rect width="16" height="16" rx="3" fill="#4CAF50"/>
-  <text x="1.5" y="11.5" font-family="monospace" font-size="8" font-weight="bold" fill="white">.rlx</text>
+  <rect width="16" height="16" rx="3" fill="#0c5e1e"/>
+  <text x="1.5" y="10.0" font-family="monospace" font-size="6" font-weight="bold" fill="white">.rlx</text>
 </svg>

@@ -393,7 +393,59 @@ def test_operator_precedence_complex_expression():
 
 
 # ---------------------------------------------------------------------------
-# 12. Many-run accumulator with milestone that fires exactly once
+# 12. Parentheses for grouping in math expressions
+# ---------------------------------------------------------------------------
+
+def test_parens_override_mul_precedence():
+    """(2 + 3) * 4 should be 20, not 14."""
+    state = run("=> x = (2 + 3) * 4")
+    assert state["x"] == 20
+
+
+def test_parens_right_operand():
+    state = run("=> x = 2 * (3 + 4)")
+    assert state["x"] == 14
+
+
+def test_deeply_nested_parens():
+    """((10 + 5) - 3) / 2 = 6.0"""
+    state = run("=> x = ((10 + 5) - 3) / 2")
+    assert state["x"] == 6.0
+
+
+def test_triple_nested_parens():
+    """(2 + (3 * (4 - 1))) = 2 + 9 = 11"""
+    state = run("=> x = (2 + (3 * (4 - 1)))")
+    assert state["x"] == 11
+
+
+def test_unary_minus_on_grouped_expr():
+    state = run("=> x = -(2 + 3)")
+    assert state["x"] == -5
+
+
+def test_parens_in_condition():
+    """Parentheses in a rule condition."""
+    source = (
+        "=> a = 2\n"
+        "=> b = 8\n"
+        "rule check: (a + b) * 2 == 20  => ok = true\n"
+    )
+    state = run(source)
+    assert state["ok"] is True
+
+
+def test_parens_mixed_across_rules():
+    source = (
+        "=> base = 3\n"
+        "=> result = (base + 2) * (base - 1)\n"   # 5 * 2 = 10
+    )
+    state = run(source)
+    assert state["result"] == 10
+
+
+# ---------------------------------------------------------------------------
+# 13. Many-run accumulator with milestone that fires exactly once
 # ---------------------------------------------------------------------------
 
 def test_accumulator_with_once_only_milestone():

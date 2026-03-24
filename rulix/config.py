@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-_VALID_GROUPS: frozenset[str] = frozenset({"io", "type", "math", "string", "state"})
+_VALID_GROUPS: frozenset[str] = frozenset({"io", "type", "math", "string", "state", "list"})
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # Reserved words that cannot be used as function names

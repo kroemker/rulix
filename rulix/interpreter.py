@@ -10,7 +10,8 @@ from pathlib import Path
 
 from .parser import (
     Assignment, BinaryOp, Disable, DotAccess, DotAssignment, FString,
-    FunctionCall, Identifier, Literal, Program, Rule, Stop, UnaryOp, parse,
+    FunctionCall, Identifier, IndexAccess, IndexAssignment, IndexDotAssignment,
+    Literal, ListLiteral, Program, Rule, Stop, UnaryOp, parse,
 )
 
 
@@ -56,6 +57,8 @@ def _to_str(v: object) -> str:
         return "null"
     if isinstance(v, bool):
         return "true" if v else "false"
+    if isinstance(v, list):
+        return "[" + ", ".join(_to_str(item) for item in v) + "]"
     return str(v)
 
 
@@ -72,11 +75,12 @@ def _fn_is_int(args):   return isinstance(args[0], int) and not isinstance(args[
 def _fn_is_float(args): return isinstance(args[0], float)
 def _fn_is_string(args):return isinstance(args[0], str)
 def _fn_is_bool(args):  return isinstance(args[0], bool)
+def _fn_is_list(args):  return isinstance(args[0], list)
 
 def _fn_str(args):   return _to_str(args[0])
 def _fn_bool(args):  return _truthy(args[0])
 def _fn_type(args):
-    return {int: "int", float: "float", bool: "bool", str: "string", type(None): "null"}.get(
+    return {int: "int", float: "float", bool: "bool", str: "string", type(None): "null", list: "list"}.get(
         type(args[0]), "unknown"
     )
 
@@ -124,6 +128,8 @@ def _fn_sqrt(args):
 # --- group: string ---
 
 def _fn_len(args):
+    if not isinstance(args[0], (str, list)):
+        raise RulixError(f"len() expects a string or list, got {type(args[0]).__name__}")
     return len(args[0])
 
 def _fn_upper(args):   return args[0].upper()
@@ -134,6 +140,34 @@ def _fn_contains(args):     return args[1] in args[0]
 def _fn_starts_with(args):  return args[0].startswith(args[1])
 def _fn_ends_with(args):    return args[0].endswith(args[1])
 def _fn_replace(args):      return args[0].replace(args[1], args[2], 1)
+def _fn_split(args):        return args[0].split(args[1])
+
+# --- group: list ---
+
+def _fn_push(args):
+    lst, value = args[0], args[1]
+    if not isinstance(lst, list):
+        raise RulixError(f"push() expects a list as first argument, got {type(lst).__name__}")
+    lst.append(value)
+    return None
+
+def _fn_pop(args):
+    lst = args[0]
+    if not isinstance(lst, list):
+        raise RulixError(f"pop() expects a list, got {type(lst).__name__}")
+    if not lst:
+        return None
+    return lst.pop()
+
+def _fn_get(args):
+    lst, idx = args[0], args[1]
+    if not isinstance(lst, list):
+        raise RulixError(f"get() expects a list as first argument, got {type(lst).__name__}")
+    if not isinstance(idx, int) or isinstance(idx, bool):
+        raise RulixError(f"get() index must be an int, got {type(idx).__name__}")
+    if idx < -len(lst) or idx >= len(lst):
+        return None
+    return lst[idx]
 
 # --- group: io ---
 
@@ -161,6 +195,7 @@ _STATELESS_BUILTINS: dict[str, tuple] = {
     "is_float":  (_fn_is_float,  1,    "type"),
     "is_string": (_fn_is_string, 1,    "type"),
     "is_bool":   (_fn_is_bool,   1,    "type"),
+    "is_list":   (_fn_is_list,   1,    "type"),
     "str":       (_fn_str,       1,    "type"),
     "int":       (_fn_int,       1,    "type"),
     "float":     (_fn_float,     1,    "type"),
@@ -184,6 +219,11 @@ _STATELESS_BUILTINS: dict[str, tuple] = {
     "starts_with": (_fn_starts_with, 2, "string"),
     "ends_with":   (_fn_ends_with,   2, "string"),
     "replace":     (_fn_replace,     3, "string"),
+    "split":       (_fn_split,       2, "string"),
+    # --- list ---
+    "push":  (_fn_push,  2, "list"),
+    "pop":   (_fn_pop,   1, "list"),
+    "get":   (_fn_get,   2, "list"),
     # --- io ---
     "print": (_fn_print, None, "io"),
     "log":   (_fn_log,   2,    "io"),
@@ -293,6 +333,43 @@ class Interpreter:
                     container[key] = {}
                 container = container[key]
             container[stmt.path[-1]] = value
+        elif isinstance(stmt, IndexAssignment):
+            lst = self.state.get(stmt.target)
+            if not isinstance(lst, list):
+                raise RulixError(
+                    f"Cannot index into '{stmt.target}': not a list"
+                )
+            idx = self._eval(stmt.index)
+            if not isinstance(idx, int) or isinstance(idx, bool):
+                raise RulixError(f"List index must be an int, got {type(idx).__name__}")
+            if idx < -len(lst) or idx >= len(lst):
+                raise RulixError(
+                    f"List index {idx} out of range for list of length {len(lst)}"
+                )
+            lst[idx] = self._eval(stmt.value)
+        elif isinstance(stmt, IndexDotAssignment):
+            lst = self.state.get(stmt.target)
+            if not isinstance(lst, list):
+                raise RulixError(
+                    f"Cannot index into '{stmt.target}': not a list"
+                )
+            idx = self._eval(stmt.index)
+            if not isinstance(idx, int) or isinstance(idx, bool):
+                raise RulixError(f"List index must be an int, got {type(idx).__name__}")
+            if idx < -len(lst) or idx >= len(lst):
+                raise RulixError(
+                    f"List index {idx} out of range for list of length {len(lst)}"
+                )
+            container = lst[idx]
+            if not isinstance(container, dict):
+                raise RulixError(
+                    f"Cannot set property '{stmt.path[0]}': list element is not an object"
+                )
+            for key in stmt.path[:-1]:
+                if not isinstance(container.get(key), dict):
+                    container[key] = {}
+                container = container[key]
+            container[stmt.path[-1]] = self._eval(stmt.value)
         elif isinstance(stmt, Disable):
             self.state[f"_rulix_disabled_{self._current_rule_identity}"] = True
             self._current_rule_disabled_self = True
@@ -306,6 +383,27 @@ class Interpreter:
     def _eval(self, node: object) -> object:
         if isinstance(node, Literal):
             return node.value
+
+        if isinstance(node, ListLiteral):
+            return [self._eval(item) for item in node.items]
+
+        if isinstance(node, IndexAccess):
+            lst = self.state.get(node.target)
+            if not isinstance(lst, list):
+                raise RulixError(
+                    f"Cannot index into '{node.target}': not a list"
+                )
+            idx = self._eval(node.index)
+            if not isinstance(idx, int) or isinstance(idx, bool):
+                raise RulixError(f"List index must be an int, got {type(idx).__name__}")
+            if idx < -len(lst) or idx >= len(lst):
+                return None
+            obj = lst[idx]
+            for key in node.path:
+                if not isinstance(obj, dict):
+                    return None
+                obj = obj.get(key)
+            return obj
 
         if isinstance(node, FString):
             return "".join(_to_str(self._eval(part)) for part in node.parts)

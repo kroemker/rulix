@@ -38,10 +38,12 @@ class TT(Enum):
     LPAREN  = auto()  # (
     RPAREN  = auto()  # )
     COMMA   = auto()  # ,
-    LBRACE  = auto()  # {
-    RBRACE  = auto()  # }
-    COLON   = auto()  # :
-    DOT     = auto()  # .
+    LBRACE   = auto()  # {
+    RBRACE   = auto()  # }
+    LBRACKET = auto()  # [
+    RBRACKET = auto()  # ]
+    COLON    = auto()  # :
+    DOT      = auto()  # .
     # Structure
     NEWLINE = auto()
     EOF     = auto()
@@ -73,6 +75,8 @@ _SINGLE: dict[str, TT] = {
     ",": TT.COMMA,
     "{": TT.LBRACE,
     "}": TT.RBRACE,
+    "[": TT.LBRACKET,
+    "]": TT.RBRACKET,
     ":": TT.COLON,
     ".": TT.DOT,
 }

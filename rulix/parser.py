@@ -72,9 +72,14 @@ class ListLiteral:
 
 @dataclass
 class IndexAccess:
-    """Read a list element by index: mylist[expr]"""
-    target: str   # variable name
-    index: object  # expr node
+    """Read a list element by index, with optional dot traversal.
+
+    items[0]       → IndexAccess("items", index, [])
+    items[0].name  → IndexAccess("items", index, ["name"])
+    """
+    target: str
+    index: object          # expr node
+    path: list = field(default_factory=list)  # dot keys after []
 
 
 @dataclass
@@ -82,6 +87,15 @@ class IndexAssignment:
     """Write a list element by index: mylist[expr] = value"""
     target: str    # variable name
     index: object  # expr node
+    value: object  # expr node
+
+
+@dataclass
+class IndexDotAssignment:
+    """Write a nested property of a list element: items[0].name = value"""
+    target: str    # variable name
+    index: object  # expr node
+    path: list     # dot keys (at least one)
     value: object  # expr node
 
 
@@ -214,17 +228,26 @@ class Parser:
             return Disable()
         if self._match(TT.STOP):
             return Stop()
-        # Detect index assignment: 'IDENT [expr] =' (save/restore on failure).
+        # Detect index assignment: 'IDENT [expr] (DOT IDENT)* =' (save/restore on failure).
         if self._check(TT.IDENT):
             saved_pos = self._pos
             name_tok = self._advance()
             if self._check(TT.LBRACKET):
                 self._advance()  # consume [
                 index_expr = self._parse_expr()
-                if self._match(TT.RBRACKET) and self._check(TT.ASSIGN):
-                    self._advance()  # consume =
-                    value_expr = self._parse_expr()
-                    return IndexAssignment(name_tok.value, index_expr, value_expr)
+                if self._match(TT.RBRACKET):
+                    # Collect optional dot keys: items[0].name.sub = ...
+                    dot_path: list = []
+                    while self._check(TT.DOT):
+                        self._advance()  # consume .
+                        k = self._expect(TT.IDENT, "Expected identifier after '.'")
+                        dot_path.append(k.value)
+                    if self._check(TT.ASSIGN):
+                        self._advance()  # consume =
+                        value_expr = self._parse_expr()
+                        if dot_path:
+                            return IndexDotAssignment(name_tok.value, index_expr, dot_path, value_expr)
+                        return IndexAssignment(name_tok.value, index_expr, value_expr)
             self._pos = saved_pos  # restore — not an index assignment
         # Detect assignment: 'IDENT (DOT IDENT)* =' (plain '=' not '==').
         path, end_pos = self._try_dotted_name()
@@ -409,12 +432,17 @@ class Parser:
                         args.append(self._parse_expr())
                 self._expect(TT.RPAREN, f"Expected ')' in call to '{t.value}' at line {t.line}")
                 return FunctionCall(t.value, args)
-            # Index access: name[expr]
+            # Index access: name[expr] or name[expr].key.sub
             if self._check(TT.LBRACKET):
                 self._advance()  # consume [
                 index = self._parse_expr()
                 self._expect(TT.RBRACKET, f"Expected ']' in index access at line {t.line}")
-                return IndexAccess(t.value, index)
+                dot_path: list = []
+                while self._check(TT.DOT):
+                    self._advance()  # consume .
+                    k = self._expect(TT.IDENT, f"Expected identifier after '.' at line {t.line}")
+                    dot_path.append(k.value)
+                return IndexAccess(t.value, index, dot_path)
             # Dot access: name.sub.key
             if self._check(TT.DOT):
                 path = [t.value]

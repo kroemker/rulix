@@ -378,3 +378,114 @@ def test_index_assignment_out_of_bounds_raises():
 def test_len_non_list_non_string_raises():
     with pytest.raises(RulixError, match="len\\(\\) expects a string or list"):
         run("=> x = len(42)")
+
+
+# ---------------------------------------------------------------------------
+# Objects (dicts) inside lists
+# ---------------------------------------------------------------------------
+
+def test_host_seeds_list_of_objects():
+    """A list of dicts seeded by the host is accessible."""
+    users = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+    state = run("=> n = len(users)", state={"users": users})
+    assert state["n"] == 2
+
+
+def test_index_access_returns_object():
+    """Indexing into a list of dicts returns the dict."""
+    users = [{"name": "Alice"}, {"name": "Bob"}]
+    state = run("=> first = get(users, 0)", state={"users": users})
+    assert state["first"] == {"name": "Alice"}
+
+
+def test_index_dot_read_property():
+    """items[0].name reads a property from an object inside a list."""
+    users = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+    state = run("=> x = users[0].name", state={"users": users})
+    assert state["x"] == "Alice"
+
+
+def test_index_dot_read_nested_property():
+    """items[0].a.b traverses multiple levels inside a list element."""
+    data = [{"server": {"host": "localhost", "port": 8080}}]
+    state = run("=> h = items[0].server.host", state={"items": data})
+    assert state["h"] == "localhost"
+
+
+def test_index_dot_read_out_of_bounds_returns_null():
+    data = [{"name": "Alice"}]
+    state = run("=> x = items[5].name", state={"items": data})
+    assert state["x"] is None
+
+
+def test_index_dot_read_missing_key_returns_null():
+    data = [{"name": "Alice"}]
+    state = run("=> x = items[0].missing", state={"items": data})
+    assert state["x"] is None
+
+
+def test_index_dot_read_non_dict_element_returns_null():
+    """Dot access on a non-dict element returns null."""
+    state = run("=> x = items[0].name", state={"items": [42, "hello"]})
+    assert state["x"] is None
+
+
+def test_index_dot_write_property():
+    """items[0].name = value writes a property into an object inside a list."""
+    users = [{"name": "Alice"}, {"name": "Bob"}]
+    state = run('=> users[0].name = "Alicia"', state={"users": users})
+    assert state["users"][0]["name"] == "Alicia"
+    assert state["users"][1]["name"] == "Bob"
+
+
+def test_index_dot_write_nested_property():
+    """items[0].a.b = value writes to a nested property."""
+    data = [{"server": {"host": "old", "port": 80}}]
+    state = run('=> items[0].server.host = "new"', state={"items": data})
+    assert state["items"][0]["server"]["host"] == "new"
+
+
+def test_index_dot_write_creates_intermediate_dict():
+    """Writing to items[0].new.key creates intermediate dicts."""
+    data = [{}]
+    state = run("=> items[0].meta.count = 1", state={"items": data})
+    assert state["items"][0]["meta"]["count"] == 1
+
+
+def test_index_dot_write_in_condition():
+    """Dot-read from list element works in a condition."""
+    users = [{"role": "admin"}, {"role": "user"}]
+    state = run('users[0].role == "admin" => x = 1', state={"users": users})
+    assert state["x"] == 1
+
+
+def test_push_object_into_list():
+    """push() adds a dict into a list."""
+    state = run(
+        '=> items = []\n=> push(items, user)',
+        state={"user": {"name": "Alice", "score": 10}},
+    )
+    assert state["items"] == [{"name": "Alice", "score": 10}]
+
+
+def test_list_of_objects_persists(tmp_path):
+    """A list of objects round-trips through JSON state persistence."""
+    from rulix import RulixInterpreter
+    state_file = str(tmp_path / "test.state")
+    interp = RulixInterpreter(state_file=state_file)
+    interp.state.set("users", [{"name": "Alice"}, {"name": "Bob"}])
+    interp.run('=> users[0].name = "Alicia"')
+
+    interp2 = RulixInterpreter(state_file=state_file)
+    interp2.run("=> x = users[0].name")
+    assert interp2.state.get("x") == "Alicia"
+
+
+def test_index_dot_write_non_list_raises():
+    with pytest.raises(RulixError, match="not a list"):
+        run('=> x = 42\n=> x[0].name = "hi"')
+
+
+def test_index_dot_write_non_dict_element_raises():
+    with pytest.raises(RulixError, match="not an object"):
+        run('=> items = [42]\n=> items[0].name = "hi"')

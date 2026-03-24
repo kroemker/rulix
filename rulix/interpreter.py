@@ -10,8 +10,8 @@ from pathlib import Path
 
 from .parser import (
     Assignment, BinaryOp, Disable, DotAccess, DotAssignment, FString,
-    FunctionCall, Identifier, IndexAccess, IndexAssignment, Literal,
-    ListLiteral, Program, Rule, Stop, UnaryOp, parse,
+    FunctionCall, Identifier, IndexAccess, IndexAssignment, IndexDotAssignment,
+    Literal, ListLiteral, Program, Rule, Stop, UnaryOp, parse,
 )
 
 
@@ -347,6 +347,29 @@ class Interpreter:
                     f"List index {idx} out of range for list of length {len(lst)}"
                 )
             lst[idx] = self._eval(stmt.value)
+        elif isinstance(stmt, IndexDotAssignment):
+            lst = self.state.get(stmt.target)
+            if not isinstance(lst, list):
+                raise RulixError(
+                    f"Cannot index into '{stmt.target}': not a list"
+                )
+            idx = self._eval(stmt.index)
+            if not isinstance(idx, int) or isinstance(idx, bool):
+                raise RulixError(f"List index must be an int, got {type(idx).__name__}")
+            if idx < -len(lst) or idx >= len(lst):
+                raise RulixError(
+                    f"List index {idx} out of range for list of length {len(lst)}"
+                )
+            container = lst[idx]
+            if not isinstance(container, dict):
+                raise RulixError(
+                    f"Cannot set property '{stmt.path[0]}': list element is not an object"
+                )
+            for key in stmt.path[:-1]:
+                if not isinstance(container.get(key), dict):
+                    container[key] = {}
+                container = container[key]
+            container[stmt.path[-1]] = self._eval(stmt.value)
         elif isinstance(stmt, Disable):
             self.state[f"_rulix_disabled_{self._current_rule_identity}"] = True
             self._current_rule_disabled_self = True
@@ -375,7 +398,12 @@ class Interpreter:
                 raise RulixError(f"List index must be an int, got {type(idx).__name__}")
             if idx < -len(lst) or idx >= len(lst):
                 return None
-            return lst[idx]
+            obj = lst[idx]
+            for key in node.path:
+                if not isinstance(obj, dict):
+                    return None
+                obj = obj.get(key)
+            return obj
 
         if isinstance(node, FString):
             return "".join(_to_str(self._eval(part)) for part in node.parts)

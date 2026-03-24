@@ -65,6 +65,27 @@ class FString:
 
 
 @dataclass
+class ListLiteral:
+    """A list literal: [expr, expr, ...]"""
+    items: list  # list of expr nodes
+
+
+@dataclass
+class IndexAccess:
+    """Read a list element by index: mylist[expr]"""
+    target: str   # variable name
+    index: object  # expr node
+
+
+@dataclass
+class IndexAssignment:
+    """Write a list element by index: mylist[expr] = value"""
+    target: str    # variable name
+    index: object  # expr node
+    value: object  # expr node
+
+
+@dataclass
 class Disable:
     """Marks the current rule as disabled for all future runs."""
 
@@ -193,6 +214,18 @@ class Parser:
             return Disable()
         if self._match(TT.STOP):
             return Stop()
+        # Detect index assignment: 'IDENT [expr] =' (save/restore on failure).
+        if self._check(TT.IDENT):
+            saved_pos = self._pos
+            name_tok = self._advance()
+            if self._check(TT.LBRACKET):
+                self._advance()  # consume [
+                index_expr = self._parse_expr()
+                if self._match(TT.RBRACKET) and self._check(TT.ASSIGN):
+                    self._advance()  # consume =
+                    value_expr = self._parse_expr()
+                    return IndexAssignment(name_tok.value, index_expr, value_expr)
+            self._pos = saved_pos  # restore — not an index assignment
         # Detect assignment: 'IDENT (DOT IDENT)* =' (plain '=' not '==').
         path, end_pos = self._try_dotted_name()
         if (path is not None
@@ -355,6 +388,16 @@ class Parser:
             self._advance()
             return Literal(None)
 
+        if t.type == TT.LBRACKET:
+            self._advance()  # consume [
+            items: list = []
+            if not self._check(TT.RBRACKET):
+                items.append(self._parse_expr())
+                while self._match(TT.COMMA):
+                    items.append(self._parse_expr())
+            self._expect(TT.RBRACKET, f"Expected ']' to close list literal at line {t.line}")
+            return ListLiteral(items)
+
         if t.type == TT.IDENT:
             self._advance()
             # Function call: name(args)
@@ -366,6 +409,12 @@ class Parser:
                         args.append(self._parse_expr())
                 self._expect(TT.RPAREN, f"Expected ')' in call to '{t.value}' at line {t.line}")
                 return FunctionCall(t.value, args)
+            # Index access: name[expr]
+            if self._check(TT.LBRACKET):
+                self._advance()  # consume [
+                index = self._parse_expr()
+                self._expect(TT.RBRACKET, f"Expected ']' in index access at line {t.line}")
+                return IndexAccess(t.value, index)
             # Dot access: name.sub.key
             if self._check(TT.DOT):
                 path = [t.value]
